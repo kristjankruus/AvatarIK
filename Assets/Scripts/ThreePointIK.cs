@@ -107,6 +107,21 @@ public class ThreePointIK : MonoBehaviour
         return Quaternion.LookRotation(direction, yDirection) * new Vector3(0f, y, x);
     }
 
+    Vector3 GetSecondBoneBendDirection(Vector3 IKPosition, Vector3 bendNormal)
+    {
+        Vector3 direction = IKPosition - bone1.trans.position;
+        if (direction == Vector3.zero) return Vector3.zero;
+
+        float directionSqrMag = direction.sqrMagnitude;
+        float directionMagnitude = (float)Mathf.Sqrt(directionSqrMag);
+
+        float x = (directionSqrMag + bone1.length * bone1.length) / 2f / directionMagnitude;
+        float y = (float)Mathf.Sqrt(Mathf.Clamp(bone1.length * bone1.length - x * x, 0, Mathf.Infinity));
+
+        Vector3 yDirection = Vector3.Cross(direction, bendNormal);
+        return Quaternion.LookRotation(direction, yDirection) * new Vector3(0f, y, x);
+    }
+
     public void UpdateIK()
     {
         //clamp target if distance to target is longer than bones combined
@@ -122,6 +137,65 @@ public class ThreePointIK : MonoBehaviour
 
         //calculate bend normal
         //you may need to change this based on the model you chose
+        Vector3 bendNormal = GetBendNormalStrategy(bendNormalStrategy, actualTargetPos);
+
+        //calculate bone1, bone2 rotation
+        Vector3 bendDirection = GetBendDirection(actualTargetPos, bendNormal);
+
+        if (IKBone4 != null)
+        {
+            bone4.trans.rotation = bone4.GetRotation(bendDirection, bendNormal);
+        }
+
+        if (trackSecondBone && secondTarget != null && bendNormalStrategy != BendNormalStrategy.spine)
+        {
+            Vector3 secondActualTargetPos;
+            float secondOverallLength = Vector3.Distance(bone1.trans.position, secondTarget.position);
+            if (secondOverallLength > bone1.length)
+            {
+                secondActualTargetPos = bone1.trans.position + (secondTarget.position - bone1.trans.position).normalized * bone1.length;
+                secondOverallLength = bone1.length;
+            }
+            else
+            {
+                secondActualTargetPos = secondTarget.position;
+            }
+
+            Vector3 secondbendNormal = GetBendNormalStrategy(bendNormalStrategy, secondActualTargetPos);
+            //calculate bone2 rotation
+            Vector3 secondbendDirection = GetSecondBoneBendDirection(secondActualTargetPos, secondbendNormal);
+
+            // Rotating Shoulder/Thigh
+            bone1.trans.rotation = bone1.GetRotation(secondbendDirection, secondbendNormal);
+            //Set Elbow/Knee position
+            bone2.trans.position = secondActualTargetPos;
+           // bone2.trans.rotation = secondTarget.rotation;
+            //Set Hand/Foot position
+            bone3.trans.position = actualTargetPos;
+
+            bone2.trans.rotation = bone2.GetRotation(actualTargetPos - bone2.trans.position, bone2.GetBendNormalFromCurrentRotation(bendNormal));
+        }
+        else
+        {
+            // Rotating bone1
+            if (bendNormalStrategy == BendNormalStrategy.leftArm || bendNormalStrategy == BendNormalStrategy.rightArm)
+            {
+                bone1.trans.rotation = bone1.GetRotation(bendDirection, bendNormal) * Quaternion.Euler(-45, 0, 0);
+            }
+            else
+            {
+                bone1.trans.rotation = bone1.GetRotation(bendDirection, bendNormal);
+            }
+
+            // Rotating bone 2
+            bone2.trans.rotation = bone2.GetRotation(actualTargetPos - bone2.trans.position, bone2.GetBendNormalFromCurrentRotation(defaultBendNormal));
+        }
+        bone3.trans.rotation = target.rotation;
+        bone3.trans.position = actualTargetPos;
+    }
+
+    private Vector3 GetBendNormalStrategy(BendNormalStrategy bendNormalStrategy, Vector3 actualTargetPos)
+    {
         Vector3 bendNormal = Vector3.zero;
         switch (bendNormalStrategy)
         {
@@ -138,25 +212,9 @@ public class ThreePointIK : MonoBehaviour
                 bendNormal = bone1.GetBendNormalFromCurrentRotation();
                 break;
             default:
-                Debug.LogError("Undefined bendnormal strategy: " + bendNormalStrategy);
                 break;
         }
-
-        //calculate bone1, bone2 rotation
-        Vector3 bendDirection = GetBendDirection(actualTargetPos, bendNormal);
-
-        if (IKBone4 != null)
-        {
-            bone4.trans.rotation = bone4.GetRotation(bendDirection, bendNormal);
-        }
-
-        // Rotating bone1
-        bone1.trans.rotation = bone1.GetRotation(bendDirection, bendNormal);
-
-        // Rotating bone 2
-        bone2.trans.rotation = bone2.GetRotation(actualTargetPos - bone2.trans.position, bone2.GetBendNormalFromCurrentRotation(defaultBendNormal));
-
-        bone3.trans.rotation = target.rotation;
+        return bendNormal;
     }
 
     void Init()
@@ -176,14 +234,26 @@ public class ThreePointIK : MonoBehaviour
         if (IKBone4 != null)
         {
             bone4 = new Bone { trans = IKBone4 };
-            bone4.length = Vector3.Distance(bone4.trans.position, bone1.trans.position);
+            bone4.length = Vector3.Distance(bone4.trans.position, bone3.trans.position);
         }
-        Vector3 bendNormal = defaultBendNormal;
+        Vector3 bendNormal = defaultBendNormal == Vector3.zero ? GetBendNormalStrategy(bendNormalStrategy, target.position) : defaultBendNormal;
 
         bone1.Initiate(bone2.trans.position, bendNormal);
 
+        bone1.Initiate(bone2.trans.position, bendNormal);
+        if (trackSecondBone && secondTarget != null)
+        {
+            if (bendNormalStrategy != BendNormalStrategy.spine)
+            {
+                secondTarget.position = bone2.trans.position;
+                secondTarget.rotation = bone2.trans.rotation;
+            }
+            else
+            {
+                secondTarget.position = bone1.trans.position;
+            }
+        }
         bone2.Initiate(bone3.trans.position, bendNormal);
-
 
         if (IKBone4 != null)
         {

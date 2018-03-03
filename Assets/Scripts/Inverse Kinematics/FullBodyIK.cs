@@ -217,11 +217,13 @@ public class FullBodyIK : MonoBehaviour
 
         var ikComps = currentCharacter.GetComponents<ThreePointIK>().ToList();
         var calibrationPoints = calibration.GetCalibrationPoints();
-        for (int i = 0; i < ikComps.Count; i++)
+        for (int i = ikComps.Count - 1; i > 0; i--)
         {
             var ikComponent = ikComps[i];
             if (ikComponent.bendNormalStrategy == ThreePointIK.BendNormalStrategy.leftArm && calibrationPoints.All(x => x.Type != CalibrationPointType.LeftHand) ||
-                ikComponent.bendNormalStrategy == ThreePointIK.BendNormalStrategy.rightArm && calibrationPoints.All(x => x.Type != CalibrationPointType.RightHand))
+                ikComponent.bendNormalStrategy == ThreePointIK.BendNormalStrategy.rightArm && calibrationPoints.All(x => x.Type != CalibrationPointType.RightHand)||
+                ikComponent.bendNormalStrategy == ThreePointIK.BendNormalStrategy.followTarget && calibrationPoints.All(x => x.Type != CalibrationPointType.RightFoot)||
+                ikComponent.bendNormalStrategy == ThreePointIK.BendNormalStrategy.followTarget && calibrationPoints.All(x => x.Type != CalibrationPointType.LeftFoot))
             {
                 ikComps.Remove(ikComponent);
             }
@@ -231,6 +233,21 @@ public class FullBodyIK : MonoBehaviour
             item.manualUpdateIK = true;
             //item.trackSecondBone = (item.bendNormalStrategy == ThreePointIK.BendNormalStrategy.followTarget);
             item.enabled = true;
+            switch (item.bendNormalStrategy)
+            {
+                case ThreePointIK.BendNormalStrategy.followTarget:
+                    item.trackSecondBone = (calibrationPoints.Any(x => x.Type == CalibrationPointType.LeftFoot) && calibrationPoints.Any(x => x.Type == CalibrationPointType.LeftKnee))||
+                        (calibrationPoints.Any(x => x.Type == CalibrationPointType.RightFoot) && calibrationPoints.Any(x => x.Type == CalibrationPointType.RightKnee));
+                    break;
+                case ThreePointIK.BendNormalStrategy.rightArm:
+                    item.trackSecondBone = calibrationPoints.Any(x => x.Type == CalibrationPointType.RightHand) && calibrationPoints.Any(x => x.Type == CalibrationPointType.RightElbow);
+                    break;
+                case ThreePointIK.BendNormalStrategy.leftArm:
+                    item.trackSecondBone = calibrationPoints.Any(x => x.Type == CalibrationPointType.LeftHand) && calibrationPoints.Any(x => x.Type == CalibrationPointType.LeftElbow);
+                    break;
+                default:
+                    break;
+            }
 
             ikComponents.Add(item);
         }
@@ -253,7 +270,13 @@ public class FullBodyIK : MonoBehaviour
         {
             item.UpdateIK();
         }
+        if (calibrated && !calibration.GetCalibrationPoints().Any(x => x.Type == CalibrationPointType.LowerBack))
+        {
+            currentCharacter.transform.position = new Vector3(Camera.main.transform.position.x, currentCharacter.transform.position.y, Camera.main.transform.position.z - initModelState.eyePos.z * 2);
+        }
     }
+
+
 
     void RecordInitModelState()
     {
